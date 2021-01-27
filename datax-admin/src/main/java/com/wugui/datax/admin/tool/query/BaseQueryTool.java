@@ -11,6 +11,7 @@ import com.wugui.datatx.core.util.Constants;
 import com.wugui.datax.admin.tool.database.ColumnInfo;
 import com.wugui.datax.admin.tool.database.DasColumn;
 import com.wugui.datax.admin.tool.database.TableInfo;
+import com.wugui.datax.admin.tool.enums.Alias;
 import com.wugui.datax.admin.tool.meta.DatabaseInterface;
 import com.wugui.datax.admin.tool.meta.DatabaseMetaFactory;
 import com.wugui.datax.admin.tool.table.TableNameHandle;
@@ -23,6 +24,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -43,17 +45,20 @@ public abstract class BaseQueryTool implements QueryToolInterface {
 
     private final Connection connection;
 
+    private final DatabaseMetaData metaData;
+
     private final String currentSchema;
 
     private final String currentDatabase;
 
 
-    public BaseQueryTool(final DbType dbType, final String parameter) {
+    public BaseQueryTool(final DbType dbType, final String parameter) throws SQLException {
         sqlBuilder = DatabaseMetaFactory.getByDbType(dbType);
         connection = DriverConnectionFactory.getConnection(dbType, parameter);
         BaseDataSource datasource = DataSourceFactory.getDatasource(dbType, parameter);
         currentSchema = getSchema(datasource.getUser());
         currentDatabase = datasource.getDatabase();
+        metaData = connection.getMetaData();
     }
 
     /**
@@ -295,11 +300,12 @@ public abstract class BaseQueryTool implements QueryToolInterface {
     @Override
     public List<String> getTableNames(final String tableSchema) {
         List<String> tables = new ArrayList<>();
-        String sql = getSqlQueryTables(tableSchema);
-        try (Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
+        try (ResultSet rs = metaData.getTables(null, tableSchema, null, this.getTableTypes())) {
             while (rs.next()) {
-                String tableName = rs.getString(1);
+                String tableName = rs.getString(Alias.TABLE_NAME.code());
+                if (StringUtils.isEmpty(tableName)){
+                    tableName = rs.getString(Alias.TABLE_NAME.code().toLowerCase(Locale.getDefault()));
+                }
                 tables.add(tableName);
             }
             tables.sort(Comparator.naturalOrder());
@@ -423,12 +429,13 @@ public abstract class BaseQueryTool implements QueryToolInterface {
 
     public List<String> getDbSchema() {
         List<String> schemas = new ArrayList<>();
-        String sql = getSQLQueryTableSchema();
-        try (Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
+        try (ResultSet rs = metaData.getSchemas(null, null)) {
             while (rs.next()) {
-                String tableName = rs.getString(1);
-                schemas.add(tableName);
+                String schema = rs.getString(Alias.TABLE_SCHEMA.code());
+                if (StringUtils.isEmpty(schema)){
+                    schema = rs.getString(Alias.TABLE_SCHEMA.code().toLowerCase(Locale.getDefault()));
+                }
+                schemas.add(schema);
             }
         } catch (SQLException e) {
             logger.error("[getDbSchema Exception] --> the exception message is:" + e.getMessage());
@@ -442,5 +449,21 @@ public abstract class BaseQueryTool implements QueryToolInterface {
 
     public static String replaceLast(final String text, final String strToReplace, final String replaceWithThis) {
         return text.replaceFirst("(?s)" + strToReplace + "(?!.*?" + strToReplace + ")", replaceWithThis);
+    }
+
+    public String[] getTableTypes() {
+        List<String> types = Lists.newArrayList();
+        try (ResultSet rs = metaData.getTableTypes()){
+            while (rs.next()) {
+                String item = rs.getString(Alias.TABLE_TYPE.code());
+                if (StringUtils.isEmpty(item)) {
+                    item = rs.getString(Alias.TABLE_TYPE.code().toLowerCase(Locale.getDefault()));
+                }
+                types.add(item);
+            }
+        } catch (SQLException e) {
+            logger.error("[getTableTypes Exception] --> the exception message is {}", e.getMessage());
+        }
+        return types.toArray(new String[0]);
     }
 }
